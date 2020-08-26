@@ -78,33 +78,41 @@ class MyWorker(Worker):
   def compute(self, config, budget, **kwargs):
     start_time = time.time()
     structure  = self.convert_func( config )
+    #print("{} -> {}".format(config, structure))
     arch_index = self._nas_bench.query_index_by_arch( structure )
-    info       = self._nas_bench.get_more_info(arch_index, self._dataname, None, hp='200', is_random=True)
-    cur_time   = info['train-all-time'] + info['valid-per-time']
-    cur_vacc   = info['valid-accuracy']
-    self.real_cost_time += (time.time() - start_time)
-    if self.sim_cost_time + cur_time <= self.time_budget and not self.is_end:
-      self.sim_cost_time += cur_time
-      self.seen_archs.append( arch_index )
-      return ({'loss': 100 - float(cur_vacc),
-               'info': {'seen-arch'     : len(self.seen_archs),
-                        'sim-test-time' : self.sim_cost_time,
-                        'current-arch'  : arch_index}
-            })
+    if arch_index > 0:
+      info       = self._nas_bench.get_more_info(arch_index, self._dataname, None, hp='200', is_random=True)
+      cur_time   = info['train-all-time'] + info['valid-per-time']
+      cur_vacc   = info['valid-accuracy']
+      self.real_cost_time += (time.time() - start_time)
+      if self.sim_cost_time + cur_time <= self.time_budget and not self.is_end:
+        self.sim_cost_time += cur_time
+        self.seen_archs.append( arch_index )
+        return ({'loss': 100 - float(cur_vacc),
+                'info': {'seen-arch'     : len(self.seen_archs),
+                          'sim-test-time' : self.sim_cost_time,
+                          'current-arch'  : arch_index}
+              })
+      else:
+        self.is_end = True
+        return ({'loss': 100,
+                'info': {'seen-arch'     : len(self.seen_archs),
+                          'sim-test-time' : self.sim_cost_time,
+                          'current-arch'  : None}
+              })
     else:
       self.is_end = True
       return ({'loss': 100,
-               'info': {'seen-arch'     : len(self.seen_archs),
+              'info': {'seen-arch'     : len(self.seen_archs),
                         'sim-test-time' : self.sim_cost_time,
                         'current-arch'  : None}
-            })
-
+            })          
 
 def main(xargs, nas_bench):
-  assert torch.cuda.is_available(), 'CUDA is not available.'
-  torch.backends.cudnn.enabled   = True
-  torch.backends.cudnn.benchmark = False
-  torch.backends.cudnn.deterministic = True
+  #assert torch.cuda.is_available(), 'CUDA is not available.'
+  #torch.backends.cudnn.enabled   = True
+  #torch.backends.cudnn.benchmark = False
+  #torch.backends.cudnn.deterministic = True
   torch.set_num_threads( xargs.workers )
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(args)
@@ -194,26 +202,26 @@ def main(xargs, nas_bench):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("BOHB: Robust and Efficient Hyperparameter Optimization at Scale")
   parser.add_argument('--data_path',          type=str,   help='Path to dataset')
-  parser.add_argument('--dataset',            type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120'], help='Choose between Cifar10/100 and ImageNet-16.')
+  parser.add_argument('--dataset',            default="ImageNet16-120", type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120'], help='Choose between Cifar10/100 and ImageNet-16.')
   # channels and number-of-cells
-  parser.add_argument('--search_space_name',  type=str,   help='The search space name.')
-  parser.add_argument('--max_nodes',          type=int,   help='The maximum number of nodes.')
-  parser.add_argument('--channel',            type=int,   help='The number of channels.')
-  parser.add_argument('--num_cells',          type=int,   help='The number of cells in one stage.')
+  parser.add_argument('--search_space_name',  default="nas-bench-201", type=str,   help='The search space name.')
+  parser.add_argument('--max_nodes',          default=4,  type=int,   help='The maximum number of nodes.')
+  parser.add_argument('--channel',            default=16,  type=int,   help='The number of channels.')
+  parser.add_argument('--num_cells',          default=5, type=int,   help='The number of cells in one stage.')
   parser.add_argument('--time_budget',        type=int,   help='The total time cost budge for searching (in seconds).')
   # BOHB
   parser.add_argument('--strategy', default="sampling",  type=str, nargs='?', help='optimization strategy for the acquisition function')
   parser.add_argument('--min_bandwidth',    default=.3,  type=float, nargs='?', help='minimum bandwidth for KDE')
-  parser.add_argument('--num_samples',      default=64,  type=int, nargs='?', help='number of samples for the acquisition function')
-  parser.add_argument('--random_fraction',  default=.33, type=float, nargs='?', help='fraction of random configurations')
+  parser.add_argument('--num_samples',      default=4,  type=int, nargs='?', help='number of samples for the acquisition function')
+  parser.add_argument('--random_fraction',  default=.0, type=float, nargs='?', help='fraction of random configurations')
   parser.add_argument('--bandwidth_factor', default=3,   type=int, nargs='?', help='factor multiplied to the bandwidth')
   parser.add_argument('--n_iters',          default=100, type=int, nargs='?', help='number of iterations for optimization method')
   # log
-  parser.add_argument('--workers',            type=int,   default=2,    help='number of data loading workers (default: 2)')
+  parser.add_argument('--workers',            type=int,   default=1,    help='number of data loading workers (default: 2)')
   parser.add_argument('--save_dir',           type=str,   help='Folder to save checkpoints and log.')
-  parser.add_argument('--arch_nas_dataset',   type=str,   help='The path to load the architecture dataset (tiny-nas-benchmark).')
-  parser.add_argument('--print_freq',         type=int,   help='print frequency (default: 200)')
-  parser.add_argument('--rand_seed',          type=int,   help='manual seed')
+  parser.add_argument('--arch_nas_dataset',   default='../unified-hpo/lookup/NAS-Bench-201-v1_1-096897.pth', type=str,   help='The path to load the architecture dataset (tiny-nas-benchmark).')
+  parser.add_argument('--print_freq',         default=200, type=int,   help='print frequency (default: 200)')
+  parser.add_argument('--rand_seed',          default=1, type=int, help='manual seed')
   args = parser.parse_args()
   #if args.rand_seed is None or args.rand_seed < 0: args.rand_seed = random.randint(1, 100000)
   if args.arch_nas_dataset is None or not os.path.isfile(args.arch_nas_dataset):
